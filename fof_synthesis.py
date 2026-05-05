@@ -1,13 +1,14 @@
 """
-fof_synthesis.py — FOF synthesis of five Mandarin vowels.
+fof_synthesis.py — FOF synthesis with vibrato, jitter, and dual preset support.
 
-Generates .wav files and spectrogram plots for /a/, /i/, /u/, /o/, /ei/.
-Uses overlap-add of parallel FOF bursts at the fundamental frequency.
+Supports both Mandarin (3-formant) and Bass singer (5-formant) vowel presets.
+Includes CHANT-style vibrato and jitter for natural vocal quality.
 
 Usage:
     python fof_synthesis.py
-    python fof_synthesis.py --f0 180 --duration 1.5
-    python fof_synthesis.py --output-dir ./my_output
+    python fof_synthesis.py --preset bass --f0 110
+    python fof_synthesis.py --vibrato-depth 15 --vibrato-rate 5.5
+    python fof_synthesis.py --no-vibrato
 """
 
 import argparse
@@ -18,44 +19,128 @@ from scipy.io.wavfile import write as wav_write
 from scipy.signal import spectrogram, windows
 
 from fof_burst import fof_burst
-from vowel_data import MANDARIN_VOWELS
+from vowel_data import MANDARIN_VOWELS, BASS_VOWELS
 
 
-def synthesize_vowel(vowel, f0, duration, fs, beta=None):
+# ---------------------------------------------------------------------------
+# Vibrato & jitter — CHANT-style f0 modulation
+# ---------------------------------------------------------------------------
+
+def make_f0_contour(f0_base, duration, fs,
+                    vibrato_rate=5.5, vibrato_depth_cents=12.0,
+                    jitter_amount=0.005):
+    """Generate a per-sample f0 contour with vibrato and jitter.
+
+    Parameters
+    ----------
+    f0_base : float
+        Base fundamental frequency in Hz.
+    duration : float
+        Duration in seconds.
+    fs : int
+        Sampling rate.
+    vibrato_rate : float
+        Vibrato LFO frequency in Hz (typical singing: 4–7 Hz).
+    vibrato_depth_cents : float
+        Vibrato depth in cents (typical: 10–30 cents).
+        0 = no vibrato.
+    jitter_amount : float
+        Random f0 perturbation as fraction of f0 (0.005 = ±0.5%).
+        Models the 1/f micro-perturbations described in the CHANT paper.
+        0 = no jitter.
+
+    Returns
+    -------
+    np.ndarray
+        f0 value at each sample (length = fs * duration).
+    """
+    N = int(fs * duration)
+    t = np.arange(N) / fs
+
+    # Vibrato: sinusoidal LFO on f0
+    if vibrato_depth_cents > 0:
+        # cents → frequency ratio: Δf = f0 * (2^(cents/1200) - 1)
+        depth_ratio = 2 ** (vibrato_depth_cents / 1200) - 1
+        vibrato = depth_ratio * np.sin(2 * np.pi * vibrato_rate * t)
+    else:
+        vibrato = np.zeros(N)
+
+    # Jitter: 1/f-like random perturbation (3-layer approach from CHANT)
+    if jitter_amount > 0:
+        # Three layers of band-limited noise at different time scales
+        rng = np.random.default_rng(42)
+        jitter = np.zeros(N)
+        for period_ms in [2, 10, 50]:  # fast, medium, slow fluctuation
+            block = int(period_ms / 1000 * fs)
+            n_blocks = N // block + 1
+            noise = rng.standard_normal(n_blocks)
+            jitter += np.repeat(noise, block)[:N] * (jitter_amount / 3)
+    else:
+        jitter = np.zeros(N)
+
+    f0_contour = f0_base * (1 + vibrato + jitter)
+    return f0_contour
+
+
+# ---------------------------------------------------------------------------
+# Core synthesis
+# ---------------------------------------------------------------------------
+
+def synthesize_vowel(vowel, f0, duration, fs, beta=None,
+                     vibrato_rate=5.5, vibrato_depth_cents=12.0,
+                     jitter_amount=0.005):
     """Synthesize one vowel using parallel FOF overlap-add.
 
     Parameters
     ----------
     vowel : VowelParams
-        Formant parameters for this vowel.
+        Formant parameters (works with any number of formants).
     f0 : float
-        Fundamental frequency in Hz.
+        Base fundamental frequency in Hz.
     duration : float
         Duration in seconds.
     fs : int
         Sampling rate in Hz.
     beta : float or None
         Attack rate. None = default (~3 ms).
+    vibrato_rate : float
+        Vibrato rate in Hz (0 to disable).
+    vibrato_depth_cents : float
+        Vibrato depth in cents (0 to disable).
+    jitter_amount : float
+        Jitter as fraction of f0 (0 to disable).
 
     Returns
     -------
     np.ndarray
         Normalized audio signal.
     """
-    T = round(fs / f0)          # samples per pitch period
-    N = int(fs * duration)      # total samples
+    N = int(fs * duration)
     signal = np.zeros(N)
+    amps = vowel.amps_linear
 
-    amps = vowel.amps_linear    # dB → linear conversion
+    # Generate f0 contour (vibrato + jitter)
+    f0_contour = make_f0_contour(
+        f0, duration, fs,
+        vibrato_rate=vibrato_rate,
+        vibrato_depth_cents=vibrato_depth_cents,
+        jitter_amount=jitter_amount,
+    )
 
-    for onset in range(0, N, T):
+    # Overlap-add with variable pitch period
+    onset = 0
+    while onset < N:
+        # Current f0 determines the period until next burst
+        current_f0 = f0_contour[onset]
+        T = round(fs / current_f0)
+
         for fc, bw, amp in zip(vowel.freqs, vowel.bws, amps):
             burst = fof_burst(fc, bw, amp, fs, beta=beta)
             burst_len = len(burst)
-
-            # Handle end-of-signal boundary
             end = min(onset + burst_len, N)
             signal[onset:end] += burst[:end - onset]
+
+        onset += T
 
     # Normalize
     peak = np.max(np.abs(signal))
@@ -65,25 +150,26 @@ def synthesize_vowel(vowel, f0, duration, fs, beta=None):
     return signal
 
 
-def plot_vowel(signal, label, fs, duration, output_dir):
+# ---------------------------------------------------------------------------
+# Plotting
+# ---------------------------------------------------------------------------
+
+def plot_vowel(signal, label, fs, duration, output_dir, prefix="fof"):
     """Plot time-domain waveform and spectrogram, save to PNG."""
     fig, axs = plt.subplots(2, 1, figsize=(10, 6))
 
-    # Time domain
     t_axis = np.linspace(0, duration, len(signal))
     axs[0].plot(t_axis, signal, linewidth=0.5)
-    axs[0].set_title(f"FOF synthesized Mandarin /{label}/")
+    axs[0].set_title(f"FOF synthesized /{label}/")
     axs[0].set_xlabel("Time (s)")
     axs[0].set_ylabel("Amplitude")
 
-    # Spectrogram
     f, t_spec, Sxx = spectrogram(
         signal, fs,
         window=windows.hamming(1024),
         nperseg=1024,
         noverlap=768,
     )
-    # Avoid log(0) warnings
     Sxx_db = 10 * np.log10(Sxx + 1e-12)
     axs[1].pcolormesh(t_spec, f / 1000, Sxx_db, shading='gouraud')
     axs[1].set_ylim(0, 5)
@@ -92,13 +178,17 @@ def plot_vowel(signal, label, fs, duration, output_dir):
     axs[1].set_ylabel("Frequency (kHz)")
 
     plt.tight_layout()
-    fig.savefig(output_dir / f"fof_{label}_plot.png", dpi=300)
+    fig.savefig(output_dir / f"{prefix}_{label}_plot.png", dpi=300)
     plt.close(fig)
 
 
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
 def main():
     parser = argparse.ArgumentParser(
-        description="FOF synthesis of Mandarin vowels"
+        description="FOF synthesis with vibrato, jitter, and dual preset support"
     )
     parser.add_argument("--f0", type=float, default=220,
                         help="Fundamental frequency in Hz (default: 220)")
@@ -110,30 +200,64 @@ def main():
                         help="Output directory (default: output)")
     parser.add_argument("--vowels", nargs="+", default=None,
                         help="Vowels to synthesize (default: all)")
+    parser.add_argument("--preset", choices=["mandarin", "bass"],
+                        default="mandarin",
+                        help="Vowel preset: mandarin (3-formant) or "
+                             "bass (5-formant CHANT) (default: mandarin)")
+    # Vibrato controls
+    parser.add_argument("--vibrato-rate", type=float, default=5.5,
+                        help="Vibrato rate in Hz (default: 5.5)")
+    parser.add_argument("--vibrato-depth", type=float, default=12.0,
+                        help="Vibrato depth in cents (default: 12)")
+    parser.add_argument("--jitter", type=float, default=0.005,
+                        help="Jitter amount as fraction of f0 (default: 0.005)")
+    parser.add_argument("--no-vibrato", action="store_true",
+                        help="Disable vibrato and jitter entirely")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    vowel_keys = args.vowels or list(MANDARIN_VOWELS.keys())
+    # Select preset
+    if args.preset == "bass":
+        vowel_table = BASS_VOWELS
+        prefix = "fof_bass"
+    else:
+        vowel_table = MANDARIN_VOWELS
+        prefix = "fof_mandarin"
+
+    vowel_keys = args.vowels or list(vowel_table.keys())
+
+    # Vibrato settings
+    vib_rate = 0 if args.no_vibrato else args.vibrato_rate
+    vib_depth = 0 if args.no_vibrato else args.vibrato_depth
+    jitter = 0 if args.no_vibrato else args.jitter
 
     for label in vowel_keys:
-        if label not in MANDARIN_VOWELS:
-            print(f"Warning: unknown vowel '{label}', skipping.")
+        if label not in vowel_table:
+            print(f"Warning: unknown vowel '{label}' in {args.preset}, skipping.")
             continue
 
-        vowel = MANDARIN_VOWELS[label]
-        print(f"Synthesizing /{label}/ ... ", end="", flush=True)
+        vowel = vowel_table[label]
+        print(f"Synthesizing /{label}/ ({args.preset}, "
+              f"{'no vibrato' if args.no_vibrato else f'vib={vib_depth}¢'}) ... ",
+              end="", flush=True)
 
-        signal = synthesize_vowel(vowel, args.f0, args.duration, args.fs)
+        signal = synthesize_vowel(
+            vowel, args.f0, args.duration, args.fs,
+            vibrato_rate=vib_rate,
+            vibrato_depth_cents=vib_depth,
+            jitter_amount=jitter,
+        )
 
         # Save audio (16-bit PCM)
-        wav_path = output_dir / f"fof_mandarin_{label}.wav"
+        wav_path = output_dir / f"{prefix}_{label}.wav"
         wav_write(str(wav_path), args.fs,
                   (signal * 32767).astype(np.int16))
 
         # Save plot
-        plot_vowel(signal, label, args.fs, args.duration, output_dir)
+        plot_vowel(signal, label, args.fs, args.duration, output_dir,
+                   prefix=prefix)
 
         print(f"done → {wav_path}")
 
