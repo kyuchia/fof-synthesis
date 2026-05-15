@@ -57,6 +57,7 @@ def interpolate_vowels(vowel_a, vowel_b, morph):
 
 def synthesize_morph(vowel_a, vowel_b, f0, duration, fs,
                      morph_curve="linear",
+                     glide_start=0.0,
                      vibrato_rate=5.5, vibrato_depth_cents=12.0,
                      jitter_amount=0.005):
     """Synthesize a vowel morph from vowel_a to vowel_b.
@@ -73,6 +74,11 @@ def synthesize_morph(vowel_a, vowel_b, f0, duration, fs,
         Sampling rate.
     morph_curve : str
         "linear" or "scurve" (smooth S-curve transition).
+    glide_start : float
+        Fraction of duration (0–1) to hold vowel_a steady before
+        starting the glide. E.g. 0.6 means the first 60% is pure
+        vowel_a, then glide happens in the remaining 40%.
+        Used for diphthongs where the first element is held longer.
 
     Returns
     -------
@@ -91,12 +97,18 @@ def synthesize_morph(vowel_a, vowel_b, f0, duration, fs,
 
     onset = 0
     while onset < N:
-        # Morph factor at this point in time
+        # Morph factor: 0 during hold, then ramp during glide
         t_frac = onset / N
-        if morph_curve == "scurve":
-            morph = 0.5 * (1 - np.cos(np.pi * t_frac))  # smooth S-curve
+        if t_frac <= glide_start:
+            raw_morph = 0.0
         else:
-            morph = t_frac
+            glide_len = 1.0 - glide_start
+            raw_morph = (t_frac - glide_start) / glide_len if glide_len > 0 else 1.0
+
+        if morph_curve == "scurve":
+            morph = 0.5 * (1 - np.cos(np.pi * raw_morph))
+        else:
+            morph = raw_morph
 
         # Interpolate vowel parameters
         vowel_now = interpolate_vowels(vowel_a, vowel_b, morph)
@@ -121,11 +133,20 @@ def synthesize_morph(vowel_a, vowel_b, f0, duration, fs,
 
 
 # --- Diphthong presets ---
-# /ei/: starts near /e/ and glides toward /i/
+# Each entry: (start_VowelParams, end_key, glide_ratio)
+# glide_ratio = fraction of duration spent on starting vowel before
+# transitioning. Real diphthongs are asymmetric: the first element
+# is held longer, then glides quickly to the second.
+
+# /ei/ starts from Chen & Wang's measured /ei/ formants, NOT /a/
+_EI_START = VowelParams('e', [460, 2453, 3168], [100, 120, 150], [0, -7, -12])
+_AI_START = VowelParams('a', [753, 1298, 3068], [100, 120, 150], [0, -7, -12])
+_OU_START = VowelParams('o', [505, 856, 3052],  [90,  110, 130], [0, -7, -12])
+
 DIPHTHONGS_MANDARIN = {
-    'ei': ('a', 'i'),   # Mandarin /ei/: open → close front
-    'ou': ('o', 'u'),   # Mandarin /ou/: mid back → close back
-    'ai': ('a', 'i'),   # Mandarin /ai/
+    'ei': (_EI_START, 'i', 0.6),   # /ei/: mid front → high front
+    'ai': (_AI_START, 'i', 0.5),   # /ai/: open → high front
+    'ou': (_OU_START, 'u', 0.6),   # /ou/: mid back → high back
 }
 
 
@@ -161,42 +182,46 @@ def main():
     jit = 0 if args.no_vibrato else 0.005
 
     # Determine what to synthesize
-    pairs = []
+    # Each item: (vowel_a, vowel_b, name, glide_start)
+    jobs = []
 
     if args.diphthong:
-        # Use predefined diphthong mapping
         if args.diphthong in DIPHTHONGS_MANDARIN:
-            src, tgt = DIPHTHONGS_MANDARIN[args.diphthong]
-            pairs.append((src, tgt, f"diphthong_{args.diphthong}"))
+            start_vowel, end_key, glide_ratio = DIPHTHONGS_MANDARIN[args.diphthong]
+            if end_key not in table:
+                print(f"Target vowel '{end_key}' not in {args.preset}")
+                return
+            jobs.append((start_vowel, table[end_key],
+                         f"diphthong_{args.diphthong}", glide_ratio))
         else:
             print(f"Unknown diphthong '{args.diphthong}'. "
                   f"Available: {list(DIPHTHONGS_MANDARIN.keys())}")
             return
     elif args.vowel_from and args.vowel_to:
-        pairs.append((args.vowel_from, args.vowel_to,
-                       f"morph_{args.vowel_from}_to_{args.vowel_to}"))
+        if args.vowel_from not in table or args.vowel_to not in table:
+            print(f"Warning: vowel not found in {args.preset}")
+            return
+        jobs.append((table[args.vowel_from], table[args.vowel_to],
+                     f"morph_{args.vowel_from}_to_{args.vowel_to}", 0.0))
     else:
         # Default demo: morph through all adjacent pairs
         keys = list(table.keys())
         for i in range(len(keys) - 1):
-            pairs.append((keys[i], keys[i + 1],
-                           f"morph_{keys[i]}_to_{keys[i+1]}"))
+            jobs.append((table[keys[i]], table[keys[i + 1]],
+                         f"morph_{keys[i]}_to_{keys[i+1]}", 0.0))
 
-    for src_key, tgt_key, name in pairs:
-        if src_key not in table or tgt_key not in table:
-            print(f"Warning: '{src_key}' or '{tgt_key}' not in {args.preset}")
-            continue
-
-        vowel_a = table[src_key]
-        vowel_b = table[tgt_key]
-
-        print(f"Morphing /{src_key}/ → /{tgt_key}/ ({args.curve}) ... ",
+    for vowel_a, vowel_b, name, glide_start in jobs:
+        print(f"Morphing /{vowel_a.label}/ → /{vowel_b.label}/ "
+              f"({args.curve}"
+              f"{f', hold {glide_start:.0%}' if glide_start > 0 else ''}"
+              f") ... ",
               end="", flush=True)
 
         signal = synthesize_morph(
             vowel_a, vowel_b,
             args.f0, args.duration, args.fs,
             morph_curve=args.curve,
+            glide_start=glide_start,
             vibrato_rate=vib_r,
             vibrato_depth_cents=vib_d,
             jitter_amount=jit,
@@ -217,7 +242,7 @@ def main():
         Sxx_db = 10 * np.log10(Sxx + 1e-12)
         ax.pcolormesh(t_spec, f / 1000, Sxx_db, shading='gouraud')
         ax.set_ylim(0, 5)
-        ax.set_title(f"Vowel morph: /{src_key}/ → /{tgt_key}/ ({args.curve})")
+        ax.set_title(f"/{vowel_a.label}/ → /{vowel_b.label}/ ({args.curve})")
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Frequency (kHz)")
         plt.tight_layout()
