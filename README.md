@@ -1,8 +1,8 @@
-# FOF Synthesis of Mandarin Vowels
+# FOF Synthesis
 
-Time-domain Formant Wave Function (FOF) synthesis of five Mandarin Chinese vowels: /a/, /i/, /u/, /o/, /ei/.
+Time-domain Formant Wave Function (FOF) synthesis of vowels, with support for Mandarin Chinese and Western (Bass singer) formant presets, vibrato/jitter, and vowel morphing.
 
-Based on Rodet's 1984 formulation, using formant measurements from Chen & Wang (2011) for male Mandarin speakers.
+Based on Rodet's 1984 formulation. Mandarin formant data from Chen & Wang (2011); Bass singer data from the CHANT/Csound conventions.
 
 ## Quick start
 
@@ -17,26 +17,38 @@ Output `.wav` files and spectrogram plots are saved to `output/`.
 
 ```
 fof_burst.py              # Core FOF burst generator (Rodet 1984 formula)
-vowel_data.py             # Mandarin vowel formant parameters (F1–F3)
-fof_synthesis.py          # Main synthesis: overlap-add → .wav + spectrograms
-fof_visualize.py          # Single-burst time/frequency visualization
-fof_parameter_study.py    # α (bandwidth) and β (skirt width) comparison plots
-output/                   # Generated audio and plots
-docs/                     # Report PDF
-matlab_original/          # Original MATLAB version (archived)
+vowel_data.py             # Vowel formant parameters: Mandarin (3-formant) + Bass singer (5-formant)
+fof_synthesis.py           # Main synthesis with vibrato/jitter + dual preset support
+fof_morphing.py            # Vowel morphing and diphthong synthesis
+fof_visualize.py           # Single-burst time/frequency visualization
+fof_parameter_study.py     # α (bandwidth) and β (skirt width) comparison plots
+output/                    # Generated audio and plots
+matlab_original/           # Original MATLAB version (archived)
 ```
 
 ## Usage examples
 
 ```bash
-# Synthesize all vowels at 220 Hz, 1 second
+# Synthesize Mandarin vowels (default)
 python fof_synthesis.py
 
-# Custom pitch and duration
-python fof_synthesis.py --f0 180 --duration 2.0
+# Bass singer preset (5 formants, CHANT data) at 110 Hz
+python fof_synthesis.py --preset bass --f0 110
 
-# Synthesize only specific vowels
-python fof_synthesis.py --vowels a i u
+# Disable vibrato for comparison
+python fof_synthesis.py --vowels a --no-vibrato
+
+# Custom vibrato settings
+python fof_synthesis.py --vibrato-rate 6.0 --vibrato-depth 20
+
+# Vowel morphing: /a/ → /i/ with S-curve transition
+python fof_morphing.py --from a --to i --duration 2.0
+
+# Diphthong /ei/ with correct hold-glide timing
+python fof_morphing.py --diphthong ei
+
+# Morph through all Bass singer vowels
+python fof_morphing.py --preset bass
 
 # Visualize a single burst
 python fof_visualize.py --fc 753 --bw 100 --save output/burst_753.png
@@ -44,6 +56,14 @@ python fof_visualize.py --fc 753 --bw 100 --save output/burst_753.png
 # Parameter study plots
 python fof_parameter_study.py --save-dir output
 ```
+
+## Features
+
+**Dual vowel presets** — Mandarin Chinese (3-formant, Chen & Wang 2011) and Bass singer (5-formant, CHANT/Csound). Selectable via `--preset mandarin` or `--preset bass`.
+
+**Vibrato and jitter** — CHANT-style f0 modulation: sinusoidal vibrato (default 5.5 Hz, 12 cents) plus three-layer 1/f random jitter for natural vocal quality. Controllable via `--vibrato-rate`, `--vibrato-depth`, `--jitter`, or `--no-vibrato`.
+
+**Vowel morphing** — Time-varying formant interpolation between any two vowels, with linear or S-curve transition. Supports asymmetric hold-glide timing for diphthong synthesis (e.g. `/ei/`: 60% hold on /e/, 40% glide to /i/).
 
 ## FOF formula
 
