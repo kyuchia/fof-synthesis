@@ -1,8 +1,6 @@
 # FOF Synthesis
 
-Time-domain Formant Wave Function (FOF) synthesis of vowels, with support for Mandarin Chinese and Western (Bass singer) formant presets, vibrato/jitter, and vowel morphing.
-
-Based on Rodet's 1984 formulation. Mandarin formant data from Chen & Wang (2011); Bass singer data from the CHANT/Csound conventions.
+Time-domain Formant Wave Function (FOF) synthesis engine in Python, based on Rodet's 1984 formulation. Features vibrato/jitter, vowel morphing, and diphthong synthesis, with Mandarin (Chen & Wang 2011) and Bass singer (CHANT/Csound) formant presets.
 
 ## Quick start
 
@@ -78,6 +76,7 @@ $$s(k) = \frac{1}{2}(1 - \cos\beta k) \cdot e^{-\alpha k} \cdot \sin(\omega_c k 
 $$s(k) = e^{-\alpha k} \cdot \sin(\omega_c k + \phi)$$
 
 Where:
+
 - **ωc** = 2πfc/fs — formant center frequency
 - **α** = πBW/fs — exponential decay rate (controls -6 dB bandwidth)
 - **β** — attack rate (controls skirt width, **independent** of bandwidth)
@@ -95,10 +94,10 @@ Multiple formants are summed in parallel, and bursts repeat at the fundamental p
 
 ## References
 
-1. X. Rodet, "Time-Domain Formant-Wave-Function Synthesis," *Computer Music Journal*, vol. 8, no. 3, pp. 9–14, 1984.
-2. X. Rodet, Y. Potard, J.-B. Barrière, "The CHANT Project: From the Synthesis of the Singing Voice to Synthesis in General," *Computer Music Journal*, vol. 8, no. 3, pp. 15–31, 1984.
+1. X. Rodet, "Time-Domain Formant-Wave-Function Synthesis," _Computer Music Journal_, vol. 8, no. 3, pp. 9–14, 1984.
+2. X. Rodet, Y. Potard, J.-B. Barrière, "The CHANT Project: From the Synthesis of the Singing Voice to Synthesis in General," _Computer Music Journal_, vol. 8, no. 3, pp. 15–31, 1984.
 3. H. C. Chen and M. J. Wang, "An Acoustic Analysis of Chinese and English Vowels," 2011.
-4. M. Clarke and X. Rodet, "Real-time FOF and FOG Synthesis in MSP and its Integration with PSOLA," *ICMC*, 2003.
+4. M. Clarke and X. Rodet, "Real-time FOF and FOG Synthesis in MSP and its Integration with PSOLA," _ICMC_, 2003.
 
 ## License
 
