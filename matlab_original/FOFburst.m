@@ -1,27 +1,40 @@
-function fof = FOFburst(Fc, BW, A, fs)
+function fof = FOFburst(Fc, BW, A, fs, beta)
 % FOFburst Generate a single FOF burst for a formant.
+%
 %   fof = FOFburst(Fc, BW, A, fs)
-%   Fc = formant center frequency (Hz)
-%   BW = formant bandwidth (Hz)
-%   A  = amplitude
-%   fs = sampling rate (Hz)
+%   fof = FOFburst(Fc, BW, A, fs, beta)
+%
+%   Fc   = formant center frequency (Hz)
+%   BW   = formant bandwidth (Hz)
+%   A    = amplitude (linear)
+%   fs   = sampling rate (Hz)
+%   beta = attack rate (rad/sample), controls skirt width independently
+%          of bandwidth. Default: pi / (0.003 * fs) (~3 ms attack).
+%
+%   Based on Rodet (1984), "Time-Domain Formant-Wave-Function Synthesis."
 
-% Duration (100 ms by T60 rule)
-fof_len = round(0.1 * fs);
-alpha = pi * BW / fs;
-omega_c = 2 * pi * Fc / fs;
-beta = omega_c / 10;
-phi = 0;
-k_a = round(pi / beta);
-fof = zeros(1, fof_len);
-
-for k = 1:fof_len
-    env = exp(-alpha * (k - 1));
-    sin_part = sin(omega_c * (k - 1) + phi);
-    if k <= k_a
-        fof(k) = A * 0.5 * (1 - cos(beta * (k - 1))) * env * sin_part;
-    else
-        fof(k) = A * env * sin_part;
-    end
+% Default beta: ~3 ms attack (independent of Fc)
+if nargin < 5
+    beta = pi / (0.003 * fs);
 end
+
+% Derived parameters
+alpha = pi * BW / fs;           % exponential decay rate
+omega_c = 2 * pi * Fc / fs;    % angular center frequency
+
+% Dynamic burst length based on T60 decay criterion
+t60 = 6.91 / (pi * BW);        % T60 in seconds
+fof_len = max(ceil(t60 * fs), 64);  % minimum 64 samples
+
+% Attack duration in samples
+k_a = round(pi / beta);
+
+% Vectorized computation
+k = 0:(fof_len - 1);
+env = exp(-alpha * k);
+carrier = sin(omega_c * k);
+attack = 0.5 * (1 - cos(beta * k));
+attack(k > k_a) = 1;
+
+fof = A * attack .* env .* carrier;
 end

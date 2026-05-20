@@ -1,53 +1,50 @@
-% Multi-vowel FOF Synthesis for Mandarin Vowels (Enhanced Version)
+% fof_synthesis_mandarin_all.m — FOF Synthesis for Mandarin Vowels
+%
+% Fixed version:
+%   - Calls FOFburst() instead of duplicating FOF logic inline
+%   - Amplitudes in dB (converted to linear), matching CHANT conventions
+%   - Dynamic burst length via T60 criterion (from FOFburst)
+%   - Beta decoupled from Fc (default ~3 ms attack)
+
 fs = 44100;
 f0 = 220;
 T = round(fs / f0);
-duration = 1; 
+duration = 1;
 N = fs * duration;
-fof_len = round(0.1 * fs);
 
-% Vowel labels and formants: [F1 F2 F3]
+% Vowel labels, formants [F1 F2 F3], bandwidths, amplitudes in dB
 vowels = {
-    'a',  [753, 1298, 3068], [100, 120, 150], [1.0, 0.8, 0.5];
-    'i',  [309, 2416, 3438], [90,  110, 130], [1.0, 0.7, 0.4];
-    'u',  [349,  759, 2883], [80,  100, 120], [1.0, 0.7, 0.4];
-    'o',  [505,  856, 3052], [90,  110, 130], [1.0, 0.7, 0.5];
-    'ei', [460, 2453, 3168], [100, 120, 150], [1.0, 0.8, 0.5];
+    'a',  [753, 1298, 3068], [100, 120, 150], [0, -7, -12];
+    'i',  [309, 2416, 3438], [90,  110, 130], [0, -9, -16];
+    'u',  [349,  759, 2883], [80,  100, 120], [0, -9, -16];
+    'o',  [505,  856, 3052], [90,  110, 130], [0, -7, -12];
+    'ei', [460, 2453, 3168], [100, 120, 150], [0, -7, -12];
 };
 
-for v = 1:size(vowels,1)
-    vowel_label = vowels{v,1};
-    F = vowels{v,2};
-    BWs = vowels{v,3};
-    Amps = vowels{v,4};
-    
-    signal = zeros(1, N);
-    
-    for t = 1:T:(N - fof_len)
-        for i = 1:3
-            Fc = F(i);
-            BW = BWs(i);
-            A = Amps(i);
-            alpha = pi * BW / fs;
-            omega_c = 2 * pi * Fc / fs;
-            beta = omega_c / 10;
-            phi = 0;
-            k_a = round(pi / beta);
+for v = 1:size(vowels, 1)
+    vowel_label = vowels{v, 1};
+    F   = vowels{v, 2};
+    BWs = vowels{v, 3};
+    amps_dB = vowels{v, 4};
 
-            fof = zeros(1, fof_len);
-            for k = 1:fof_len
-                env = exp(-alpha * (k - 1));
-                sin_part = sin(omega_c * (k - 1) + phi);
-                if k <= k_a
-                    fof(k) = A * 0.5 * (1 - cos(beta * (k - 1))) * env * sin_part;
-                else
-                    fof(k) = A * env * sin_part;
-                end
-            end
-            signal(t:(t + fof_len - 1)) = signal(t:(t + fof_len - 1)) + fof;
+    % Convert dB to linear amplitude
+    Amps = 10.^(amps_dB / 20);
+
+    signal = zeros(1, N);
+
+    for t = 1:T:N
+        for i = 1:3
+            % Call FOFburst — single source of truth
+            burst = FOFburst(F(i), BWs(i), Amps(i), fs);
+            burst_len = length(burst);
+
+            % Handle end-of-signal boundary
+            end_idx = min(t + burst_len - 1, N);
+            actual_len = end_idx - t + 1;
+            signal(t:end_idx) = signal(t:end_idx) + burst(1:actual_len);
         end
     end
-    
+
     % Normalize
     signal = signal / max(abs(signal));
 
@@ -56,22 +53,24 @@ for v = 1:size(vowels,1)
     audiowrite(filename, signal, fs);
 
     % Plot and export figure
-    t_axis = (0:length(signal)-1)/fs;
+    t_axis = (0:length(signal)-1) / fs;
     fig = figure('Name', ['/' vowel_label '/'], 'Visible', 'off');
-    
+
     % Time-domain plot
-    subplot(2,1,1);
+    subplot(2, 1, 1);
     plot(t_axis, signal);
     title(['FOF Synthesized Mandarin /' vowel_label '/']);
     xlabel('Time (s)'); ylabel('Amplitude');
 
-    % Spectrogram (instead of FFT)
-    subplot(2,1,2);
+    % Spectrogram
+    subplot(2, 1, 2);
     spectrogram(signal, hamming(1024), 768, 1024, fs, 'yaxis');
     title(['Spectrogram of /' vowel_label '/']);
-    ylim([0 5]) % show up to 5kHz
+    ylim([0 5]);  % show up to 5 kHz
 
     % Export plot
     exportgraphics(fig, ['fof_' vowel_label '_plot.png'], 'Resolution', 300);
-    close(fig); % close figure to avoid clutter
+    close(fig);
 end
+
+fprintf('Synthesis complete for all vowels.\n');
