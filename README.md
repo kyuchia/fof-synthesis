@@ -2,6 +2,8 @@
 
 Time-domain Formant Wave Function (FOF) synthesis engine in Python, based on Rodet's 1984 formulation. Features vibrato/jitter, vowel morphing, and diphthong synthesis, with Mandarin (Chen & Wang 2011) and Bass singer (CHANT/Csound) formant presets.
 
+![Vowel morph /a/ → /i/](output/fof_morph_a_to_i_spectrogram.png)
+
 ## Quick start
 
 ```bash
@@ -21,7 +23,7 @@ fof_morphing.py            # Vowel morphing and diphthong synthesis
 fof_visualize.py           # Single-burst time/frequency visualization
 fof_parameter_study.py     # α (bandwidth) and β (skirt width) comparison plots
 output/                    # Generated audio and plots
-matlab_original/           # Original MATLAB version (archived)
+matlab_original/           # Original MATLAB version (fixed)
 ```
 
 ## Usage examples
