@@ -98,7 +98,3 @@ Multiple formants are summed in parallel, and bursts repeat at the fundamental p
 2. X. Rodet, Y. Potard, J.-B. Barrière, "The CHANT Project: From the Synthesis of the Singing Voice to Synthesis in General," _Computer Music Journal_, vol. 8, no. 3, pp. 15–31, 1984.
 3. H. C. Chen and M. J. Wang, "An Acoustic Analysis of Chinese and English Vowels," 2011.
 4. M. Clarke and X. Rodet, "Real-time FOF and FOG Synthesis in MSP and its Integration with PSOLA," _ICMC_, 2003.
-
-## License
-
-MIT
