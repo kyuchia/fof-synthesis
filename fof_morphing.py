@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import dataclasses
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
@@ -39,8 +40,19 @@ def interpolate_vowels(vowel_a, vowel_b, morph):
     -------
     VowelParams
         Interpolated vowel parameters.
+
+    Raises
+    ------
+    ValueError
+        If the two vowels have a different number of formants (for example
+        a 3-formant Mandarin vowel and a 5-formant bass vowel).
     """
-    n = min(len(vowel_a.freqs), len(vowel_b.freqs))
+    if len(vowel_a.freqs) != len(vowel_b.freqs):
+        raise ValueError(
+            f"cannot interpolate /{vowel_a.label}/ ({len(vowel_a.freqs)} formants) "
+            f"and /{vowel_b.label}/ ({len(vowel_b.freqs)} formants): "
+            f"the formant counts must match")
+    n = len(vowel_a.freqs)
     freqs = [vowel_a.freqs[i] * (1 - morph) + vowel_b.freqs[i] * morph
              for i in range(n)]
     bws = [vowel_a.bws[i] * (1 - morph) + vowel_b.bws[i] * morph
@@ -132,15 +144,15 @@ def synthesize_morph(vowel_a, vowel_b, f0, duration, fs,
 # transitioning. Real diphthongs are asymmetric: the first element
 # is held longer, then glides quickly to the second.
 
-# /ei/ starts from Chen & Wang's measured /ei/ formants, NOT /a/
-_EI_START = VowelParams('e', [460, 2453, 3168], [100, 120, 150], [0, -7, -12])
-_AI_START = VowelParams('a', [753, 1298, 3068], [100, 120, 150], [0, -7, -12])
-_OU_START = VowelParams('o', [505, 856, 3052],  [90,  110, 130], [0, -7, -12])
-
+# Start vowels are taken from MANDARIN_VOWELS so the data lives in one place.
+# /ei/ starts from Chen & Wang's measured /ei/ formants, NOT /a/; it is
+# relabelled /e/ because it is the first element of the glide.
+# The end vowels are looked up in MANDARIN_VOWELS too, so diphthongs are
+# defined for the Mandarin preset only.
 DIPHTHONGS_MANDARIN = {
-    'ei': (_EI_START, 'i', 0.6),   # /ei/: mid front → high front
-    'ai': (_AI_START, 'i', 0.5),   # /ai/: open → high front
-    'ou': (_OU_START, 'u', 0.6),   # /ou/: mid back → high back
+    'ei': (dataclasses.replace(MANDARIN_VOWELS['ei'], label='e'), 'i', 0.6),  # mid front -> high front
+    'ai': (MANDARIN_VOWELS['a'], 'i', 0.5),                                  # open -> high front
+    'ou': (MANDARIN_VOWELS['o'], 'u', 0.6),                                  # mid back -> high back
 }
 
 
@@ -180,21 +192,21 @@ def main():
     jobs = []
 
     if args.diphthong:
+        if args.preset != "mandarin":
+            parser.error("--diphthong is only defined for --preset mandarin "
+                         "(the diphthong start vowels are Mandarin measurements)")
         if args.diphthong in DIPHTHONGS_MANDARIN:
             start_vowel, end_key, glide_ratio = DIPHTHONGS_MANDARIN[args.diphthong]
-            if end_key not in table:
-                print(f"Target vowel '{end_key}' not in {args.preset}")
-                return
-            jobs.append((start_vowel, table[end_key],
+            jobs.append((start_vowel, MANDARIN_VOWELS[end_key],
                          f"diphthong_{args.diphthong}", glide_ratio))
         else:
-            print(f"Unknown diphthong '{args.diphthong}'. "
-                  f"Available: {list(DIPHTHONGS_MANDARIN.keys())}")
-            return
+            parser.error(f"unknown diphthong '{args.diphthong}'; "
+                         f"available: {', '.join(DIPHTHONGS_MANDARIN)}")
     elif args.vowel_from and args.vowel_to:
-        if args.vowel_from not in table or args.vowel_to not in table:
-            print(f"Warning: vowel not found in {args.preset}")
-            return
+        for key in (args.vowel_from, args.vowel_to):
+            if key not in table:
+                parser.error(f"unknown vowel '{key}' for --preset {args.preset}; "
+                             f"available: {', '.join(table)}")
         jobs.append((table[args.vowel_from], table[args.vowel_to],
                      f"morph_{args.vowel_from}_to_{args.vowel_to}", 0.0))
     else:
