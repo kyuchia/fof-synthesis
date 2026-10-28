@@ -23,6 +23,20 @@ from vowel_data import MANDARIN_VOWELS, BASS_VOWELS
 
 
 # ---------------------------------------------------------------------------
+# Parameter checks
+# ---------------------------------------------------------------------------
+
+def check_synthesis_params(f0, duration, fs):
+    """Raise ValueError for f0 / duration / fs values that cannot be synthesized."""
+    if not fs > 0:
+        raise ValueError(f"fs must be positive, got {fs}")
+    if not 0 < f0 < fs / 2:
+        raise ValueError(f"f0 must be in (0, fs/2 = {fs / 2:g}) Hz, got {f0}")
+    if not duration > 0 or int(fs * duration) < 1:
+        raise ValueError(f"duration must be at least one sample (1/fs s), got {duration}")
+
+
+# ---------------------------------------------------------------------------
 # Vibrato & jitter — CHANT-style f0 modulation
 # ---------------------------------------------------------------------------
 
@@ -79,6 +93,14 @@ def make_f0_contour(f0_base, duration, fs,
         jitter = np.zeros(N)
 
     f0_contour = f0_base * (1 + vibrato + jitter)
+
+    # Large vibrato/jitter settings can push f0 to zero or below (the pulse
+    # train would then never advance) or above Nyquist.
+    lo, hi = f0_contour.min(), f0_contour.max()
+    if lo <= 0 or hi >= fs / 2:
+        raise ValueError(
+            f"vibrato/jitter push f0 to {lo:.1f}-{hi:.1f} Hz, outside (0, fs/2); "
+            f"reduce the vibrato depth or jitter amount")
     return f0_contour
 
 
@@ -159,6 +181,7 @@ def synthesize_vowel(vowel, f0, duration, fs, beta=None,
     np.ndarray
         Normalized audio signal.
     """
+    check_synthesis_params(f0, duration, fs)
     N = int(fs * duration)
     signal = np.zeros(N)
     amps = vowel.amps_linear
@@ -279,12 +302,16 @@ def main():
               f"{'no vibrato' if args.no_vibrato else f'vib={vib_depth}¢'}) ... ",
               end="", flush=True)
 
-        signal = synthesize_vowel(
-            vowel, args.f0, args.duration, args.fs,
-            vibrato_rate=vib_rate,
-            vibrato_depth_cents=vib_depth,
-            jitter_amount=jitter,
-        )
+        try:
+            signal = synthesize_vowel(
+                vowel, args.f0, args.duration, args.fs,
+                vibrato_rate=vib_rate,
+                vibrato_depth_cents=vib_depth,
+                jitter_amount=jitter,
+            )
+        except ValueError as e:
+            print()
+            parser.error(str(e))
 
         # Save audio (16-bit PCM)
         wav_path = output_dir / f"{prefix}_{label}.wav"

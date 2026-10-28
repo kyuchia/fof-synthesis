@@ -51,7 +51,24 @@ def fof_burst(fc, bw, amp, fs, beta=None, phi=0.0, offset=0.0):
         s(k) = e^(−αk) · sin(ωc·k + φ)
 
     The burst is truncated at the T60 decay time: t60 = 6.91 / (π·BW).
+
+    Raises
+    ------
+    ValueError
+        If fs, bw or beta is not positive, fc is not in (0, fs/2),
+        or offset is not in [0, 1).
     """
+    if not fs > 0:
+        raise ValueError(f"fs must be positive, got {fs}")
+    if not 0 < fc < fs / 2:
+        raise ValueError(f"fc must be in (0, fs/2 = {fs / 2:g}) Hz, got {fc}")
+    if not bw > 0:
+        raise ValueError(f"bw must be positive, got {bw}")
+    if beta is not None and not beta > 0:
+        raise ValueError(f"beta must be positive, got {beta}")
+    if not 0 <= offset < 1:
+        raise ValueError(f"offset must be in [0, 1), got {offset}")
+
     # Default β: ~3 ms attack (independent of fc)
     if beta is None:
         beta = np.pi / (0.003 * fs)

@@ -20,7 +20,8 @@ from scipy.io.wavfile import write as wav_write
 from scipy.signal import spectrogram, windows
 
 from fof_burst import fof_burst
-from fof_synthesis import make_f0_contour, pitch_onsets, add_burst
+from fof_synthesis import (make_f0_contour, pitch_onsets, add_burst,
+                           check_synthesis_params)
 from vowel_data import MANDARIN_VOWELS, BASS_VOWELS, VowelParams
 
 
@@ -85,6 +86,7 @@ def synthesize_morph(vowel_a, vowel_b, f0, duration, fs,
     np.ndarray
         Audio signal.
     """
+    check_synthesis_params(f0, duration, fs)
     N = int(fs * duration)
     signal = np.zeros(N)
 
@@ -209,15 +211,19 @@ def main():
               f") ... ",
               end="", flush=True)
 
-        signal = synthesize_morph(
-            vowel_a, vowel_b,
-            args.f0, args.duration, args.fs,
-            morph_curve=args.curve,
-            glide_start=glide_start,
-            vibrato_rate=vib_r,
-            vibrato_depth_cents=vib_d,
-            jitter_amount=jit,
-        )
+        try:
+            signal = synthesize_morph(
+                vowel_a, vowel_b,
+                args.f0, args.duration, args.fs,
+                morph_curve=args.curve,
+                glide_start=glide_start,
+                vibrato_rate=vib_r,
+                vibrato_depth_cents=vib_d,
+                jitter_amount=jit,
+            )
+        except ValueError as e:
+            print()
+            parser.error(str(e))
 
         # Save audio
         wav_path = output_dir / f"fof_{name}.wav"

@@ -101,8 +101,11 @@ def main():
     if save:
         Path(save).mkdir(parents=True, exist_ok=True)
 
-    plot_bandwidth_comparison(args.fc, args.fs, save)
-    plot_beta_comparison(args.fc, args.fs, save)
+    try:
+        plot_bandwidth_comparison(args.fc, args.fs, save)
+        plot_beta_comparison(args.fc, args.fs, save)
+    except ValueError as e:
+        parser.error(str(e))
 
 
 if __name__ == "__main__":

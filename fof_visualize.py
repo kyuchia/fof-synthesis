@@ -74,7 +74,10 @@ def main():
                         help="Save plot to file instead of displaying")
     args = parser.parse_args()
 
-    plot_burst(args.fc, args.bw, args.amp, args.fs, save_path=args.save)
+    try:
+        plot_burst(args.fc, args.bw, args.amp, args.fs, save_path=args.save)
+    except ValueError as e:
+        parser.error(str(e))
 
 
 if __name__ == "__main__":
