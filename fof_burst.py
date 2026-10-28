@@ -11,7 +11,7 @@ Reference:
 import numpy as np
 
 
-def fof_burst(fc, bw, amp, fs, beta=None, phi=0.0):
+def fof_burst(fc, bw, amp, fs, beta=None, phi=0.0, offset=0.0):
     """Generate a single FOF burst for one formant.
 
     Parameters
@@ -30,6 +30,10 @@ def fof_burst(fc, bw, amp, fs, beta=None, phi=0.0):
         If None, defaults to π / (0.003 * fs), giving ~3 ms attack.
     phi : float
         Initial phase of the sinusoidal carrier (radians).
+    offset : float
+        Sub-sample delay in [0, 1): sample n of the returned burst is the
+        FOF evaluated at k = n + offset. Used to place a burst at a
+        fractional onset (non-integer pitch period) without interpolation.
 
     Returns
     -------
@@ -61,10 +65,10 @@ def fof_burst(fc, bw, amp, fs, beta=None, phi=0.0):
     fof_len = max(int(np.ceil(t60 * fs)), 64)  # minimum 64 samples
 
     # Attack duration in samples
-    k_a = int(np.round(np.pi / beta))
+    k_a = np.pi / beta
 
     # Vectorized computation (no Python for-loop)
-    k = np.arange(fof_len)
+    k = np.arange(fof_len) + offset
     env = np.exp(-alpha * k)
     carrier = np.sin(omega_c * k + phi)
 

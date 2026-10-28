@@ -20,7 +20,7 @@ from scipy.io.wavfile import write as wav_write
 from scipy.signal import spectrogram, windows
 
 from fof_burst import fof_burst
-from fof_synthesis import make_f0_contour
+from fof_synthesis import make_f0_contour, pitch_onsets, add_burst
 from vowel_data import MANDARIN_VOWELS, BASS_VOWELS, VowelParams
 
 
@@ -95,8 +95,7 @@ def synthesize_morph(vowel_a, vowel_b, f0, duration, fs,
         jitter_amount=jitter_amount,
     )
 
-    onset = 0
-    while onset < N:
+    for onset in pitch_onsets(f0_contour, fs):
         # Morph factor: 0 during hold, then ramp during glide
         t_frac = onset / N
         if t_frac <= glide_start:
@@ -114,17 +113,10 @@ def synthesize_morph(vowel_a, vowel_b, f0, duration, fs,
         vowel_now = interpolate_vowels(vowel_a, vowel_b, morph)
         amps = vowel_now.amps_linear
 
-        # Current pitch period
-        current_f0 = f0_contour[onset]
-        T = round(fs / current_f0)
-
+        offset = np.ceil(onset) - onset   # sub-sample delay in [0, 1)
         for fc, bw, amp in zip(vowel_now.freqs, vowel_now.bws, amps):
-            burst = fof_burst(fc, bw, amp, fs)
-            burst_len = len(burst)
-            end = min(onset + burst_len, N)
-            signal[onset:end] += burst[:end - onset]
-
-        onset += T
+            burst = fof_burst(fc, bw, amp, fs, offset=offset)
+            add_burst(signal, burst, onset)
 
     peak = np.max(np.abs(signal))
     if peak > 0:

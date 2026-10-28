@@ -86,6 +86,50 @@ def make_f0_contour(f0_base, duration, fs,
 # Core synthesis
 # ---------------------------------------------------------------------------
 
+def pitch_onsets(f0_contour, fs):
+    """Fractional sample positions of successive pitch pulses.
+
+    Each period is fs / f0 evaluated at the current pulse, kept as a float
+    (no rounding to whole samples), so the realised pitch and vibrato follow
+    the f0 contour exactly instead of jumping in whole-sample steps.
+
+    Parameters
+    ----------
+    f0_contour : np.ndarray
+        f0 in Hz at each sample (see make_f0_contour).
+    fs : int
+        Sampling rate in Hz.
+
+    Returns
+    -------
+    np.ndarray
+        Onset times in samples (floats), all < len(f0_contour).
+    """
+    N = len(f0_contour)
+    onsets = []
+    t = 0.0
+    while True:
+        # Snap onsets within 1e-6 samples of an integer: otherwise float
+        # round-off decides whether ceil() starts the burst one sample later,
+        # which moves the T60 truncation point by one sample.
+        r = round(t)
+        if abs(t - r) < 1e-6:
+            t = float(r)
+        if t >= N:
+            break
+        onsets.append(t)
+        t += fs / f0_contour[int(t)]
+    return np.array(onsets)
+
+
+def add_burst(signal, burst, onset):
+    """Overlap-add a burst whose first sample is at ceil(onset)."""
+    start = int(np.ceil(onset))
+    end = min(start + len(burst), len(signal))
+    if start < end:
+        signal[start:end] += burst[:end - start]
+
+
 def synthesize_vowel(vowel, f0, duration, fs, beta=None,
                      vibrato_rate=5.5, vibrato_depth_cents=12.0,
                      jitter_amount=0.005):
@@ -127,20 +171,12 @@ def synthesize_vowel(vowel, f0, duration, fs, beta=None,
         jitter_amount=jitter_amount,
     )
 
-    # Overlap-add with variable pitch period
-    onset = 0
-    while onset < N:
-        # Current f0 determines the period until next burst
-        current_f0 = f0_contour[onset]
-        T = round(fs / current_f0)
-
+    # Overlap-add at fractional pitch-pulse positions
+    for onset in pitch_onsets(f0_contour, fs):
+        offset = np.ceil(onset) - onset   # sub-sample delay in [0, 1)
         for fc, bw, amp in zip(vowel.freqs, vowel.bws, amps):
-            burst = fof_burst(fc, bw, amp, fs, beta=beta)
-            burst_len = len(burst)
-            end = min(onset + burst_len, N)
-            signal[onset:end] += burst[:end - onset]
-
-        onset += T
+            burst = fof_burst(fc, bw, amp, fs, beta=beta, offset=offset)
+            add_burst(signal, burst, onset)
 
     # Normalize
     peak = np.max(np.abs(signal))
