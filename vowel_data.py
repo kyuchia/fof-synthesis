@@ -1,15 +1,19 @@
 """
 vowel_data.py — Mandarin vowel formant parameters.
 
-Formant frequencies (F1–F3) from:
-    H. C. Chen and M. J. Wang, "An Acoustic Analysis of Chinese
-    and English Vowels," 2011.
+Formant frequencies (F1-F3) from:
+    H. C. Chen and M. J. Wang, "An acoustic analysis of Chinese and
+    English vowels," CALR Linguistic Journal, vol. 1, pp. 1-19, 2011.
 
 Bandwidth and amplitude values estimated from typical male speaker
 measurements and CHANT-style conventions.
 
 Amplitudes are stored in dB (relative to F1 = 0 dB) and converted
-to linear scale via the helper function.
+to linear scale via the helper function. They set the time-domain
+amplitude of each formant's FOF burst, not its spectral peak level:
+the peak also depends on the formant's bandwidth, so a wider formant
+peaks lower than its table value (e.g. /a/ F3, -12 dB in the table,
+peaks about -17 dB relative to F1).
 """
 
 import numpy as np
