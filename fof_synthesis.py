@@ -40,9 +40,17 @@ def check_synthesis_params(f0, duration, fs):
 # Vibrato & jitter — CHANT-style f0 modulation
 # ---------------------------------------------------------------------------
 
+# Time scales of the three jitter layers. Each is two octaves slower than the
+# previous one; summing equal-variance layers spaced like this approximates a
+# 1/f spectrum (Voss-McCartney). The layers are linearly interpolated, and
+# the fastest one (10 ms) is longer than a pitch period for f0 above 100 Hz,
+# so the jitter varies smoothly from one FOF pulse to the next.
+JITTER_LAYER_MS = (10, 40, 160)
+
+
 def make_f0_contour(f0_base, duration, fs,
                     vibrato_rate=5.5, vibrato_depth_cents=12.0,
-                    jitter_amount=0.005):
+                    jitter_amount=0.005, seed=42):
     """Generate a per-sample f0 contour with vibrato and jitter.
 
     Parameters
@@ -59,9 +67,11 @@ def make_f0_contour(f0_base, duration, fs,
         Vibrato depth in cents (typical: 10–30 cents).
         0 = no vibrato.
     jitter_amount : float
-        Random f0 perturbation as fraction of f0 (0.005 = ±0.5%).
-        Models the 1/f micro-perturbations described in the CHANT paper.
-        0 = no jitter.
+        Standard deviation of the random f0 perturbation, as a fraction of
+        f0 (0.005 = 0.5%). Approximates the 1/f micro-perturbations
+        described in the CHANT paper. 0 = no jitter.
+    seed : int
+        Seed for the jitter noise, so output is reproducible.
 
     Returns
     -------
@@ -79,18 +89,23 @@ def make_f0_contour(f0_base, duration, fs,
     else:
         vibrato = np.zeros(N)
 
-    # Jitter: 1/f-like random perturbation (3-layer approach from CHANT)
-    if jitter_amount > 0:
-        # Three layers of band-limited noise at different time scales
-        rng = np.random.default_rng(42)
-        jitter = np.zeros(N)
-        for period_ms in [2, 10, 50]:  # fast, medium, slow fluctuation
-            block = int(period_ms / 1000 * fs)
-            n_blocks = N // block + 1
-            noise = rng.standard_normal(n_blocks)
-            jitter += np.repeat(noise, block)[:N] * (jitter_amount / 3)
-    else:
-        jitter = np.zeros(N)
+    # Jitter: 1/f-like random perturbation (3-layer approach from CHANT).
+    # Each layer is Gaussian noise at breakpoints every `period_ms`, linearly
+    # interpolated so it has no steps. The sum is made zero-mean (the average
+    # pitch stays f0_base) and scaled so its standard deviation is exactly
+    # jitter_amount.
+    jitter = np.zeros(N)
+    if jitter_amount > 0 and N > 1:
+        rng = np.random.default_rng(seed)
+        for period_ms in JITTER_LAYER_MS:
+            step = period_ms / 1000 * fs                 # samples per breakpoint
+            n_points = int(np.ceil(N / step)) + 2
+            points = rng.standard_normal(n_points)
+            jitter += np.interp(np.arange(N) / step, np.arange(n_points), points)
+        jitter -= jitter.mean()
+        sd = jitter.std()
+        if sd > 0:
+            jitter *= jitter_amount / sd
 
     f0_contour = f0_base * (1 + vibrato + jitter)
 
@@ -269,7 +284,8 @@ def main():
     parser.add_argument("--vibrato-depth", type=float, default=12.0,
                         help="Vibrato depth in cents (default: 12)")
     parser.add_argument("--jitter", type=float, default=0.005,
-                        help="Jitter amount as fraction of f0 (default: 0.005)")
+                        help="Jitter: standard deviation of f0 as a fraction "
+                             "of f0 (default: 0.005 = 0.5%%)")
     parser.add_argument("--no-vibrato", action="store_true",
                         help="Disable vibrato and jitter entirely")
     args = parser.parse_args()
